@@ -3,6 +3,7 @@ from flask_mail import Mail, Message
 from flask_cors import CORS
 import mysql.connector 
 import os 
+from threading import Thread  # <-- NUEVO: Importación para ejecución en segundo plano
 
 app = Flask(__name__)
 CORS(app)
@@ -21,12 +22,26 @@ app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER')
 
 mail = Mail(app)
 
+
+def send_async_email(app_instance, msg):
+    """Función que ejecuta el envío del correo en un hilo secundario aislado."""
+    with app_instance.app_context():
+        try:
+            mail.send(msg)
+            print("DEBUG: Correo HTML de recuperación enviado exitosamente en segundo plano.")
+        except Exception as e:
+            print(f"DEBUG ERROR HILO: Fallo al enviar correo: {str(e)}")
+
+
 @app.route('/api/enviar-enlace', methods=['POST'])
 def enviar_enlace():
     try:
         data = request.get_json()
-        email_destino = data.get('email') # <-- Esto lee CUALQUIER correo enviado desde Java
+        email_destino = data.get('email') 
         enlace_recuperacion = data.get('link')
+
+        if not email_destino or not enlace_recuperacion:
+            return jsonify({"status": "error", "message": "Faltan parámetros obligatorios: email o link"}), 400
 
         # El mensaje se envía dinámicamente al correo extraído de la petición
         msg = Message('Restablecer Acceso - Compuedu', recipients=[email_destino])
@@ -58,15 +73,18 @@ def enviar_enlace():
         </div>
         """
         
-        mail.send(msg)
-        return jsonify({"status": "success", "message": "Correo enviado correctamente"}), 200
+        # ASÍNCRONO: Se crea el hilo, pasamos la app y el mensaje, y lo iniciamos inmediatamente
+        thr = Thread(target=send_async_email, args=[app, msg])
+        thr.start()
+        
+        # Respondemos de inmediato con éxito a Spring Boot para liberar la petición
+        return jsonify({"status": "success", "message": "Proceso de envío iniciado"}), 200
 
     except Exception as e:
         print(f"DEBUG ERROR: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# (El resto de tus funciones como get_db_connection() y get_stats() quedan igual)
-# Adaptar la conexión para leer Aiven o Localhost automáticamente (CORREGIDO)
+
 # Adaptar la conexión para leer Aiven o Localhost automáticamente (VERSIÓN UNIVERSAL)
 def get_db_connection():
     db_host = os.environ.get('DB_HOST', 'localhost')
@@ -75,7 +93,6 @@ def get_db_connection():
     db_password = os.environ.get('DB_PASSWORD', '')
     db_name = os.environ.get('DB_NAME', 'compuedu')
 
-    # Configuración base limpia sin argumentos SSL en el constructor
     config = {
         'host': db_host,
         'port': db_port,
@@ -84,7 +101,6 @@ def get_db_connection():
         'database': db_name
     }
 
-    # Si es producción (Aiven), dejamos que el conector negocie TLS automáticamente o pasamos la propiedad por separado
     return mysql.connector.connect(**config)
 
 
@@ -113,7 +129,6 @@ def get_stats(creador_id):
         })
     except Exception as e:
         print(f"Error en stats: {e}")
-        # Asegurar el cierre de conexiones en caso de caída para no bloquear Aiven
         if cursor: cursor.close()
         if conn: conn.close()
         return jsonify({"error": str(e)}), 500
