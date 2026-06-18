@@ -67,6 +67,7 @@ def enviar_enlace():
 
 # (El resto de tus funciones como get_db_connection() y get_stats() quedan igual)
 # Adaptar la conexión para leer Aiven o Localhost automáticamente (CORREGIDO)
+# Adaptar la conexión para leer Aiven o Localhost automáticamente (VERSIÓN UNIVERSAL)
 def get_db_connection():
     db_host = os.environ.get('DB_HOST', 'localhost')
     db_port = int(os.environ.get('DB_PORT', 3306))
@@ -74,6 +75,7 @@ def get_db_connection():
     db_password = os.environ.get('DB_PASSWORD', '')
     db_name = os.environ.get('DB_NAME', 'compuedu')
 
+    # Configuración base limpia sin argumentos SSL en el constructor
     config = {
         'host': db_host,
         'port': db_port,
@@ -82,10 +84,7 @@ def get_db_connection():
         'database': db_name
     }
 
-    # Configuración de SSL compatible con todas las versiones del conector de MySQL
-    if db_host != 'localhost':
-        config['ssl'] = {}  # Activa SSL seguro para Aiven eliminando ssl_mode
-
+    # Si es producción (Aiven), dejamos que el conector negocie TLS automáticamente o pasamos la propiedad por separado
     return mysql.connector.connect(**config)
 
 
