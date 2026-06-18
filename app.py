@@ -66,8 +66,7 @@ def enviar_enlace():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # (El resto de tus funciones como get_db_connection() y get_stats() quedan igual)
-
-# Adaptar la conexión para leer Aiven o Localhost automáticamente
+# Adaptar la conexión para leer Aiven o Localhost automáticamente (CORREGIDO)
 def get_db_connection():
     db_host = os.environ.get('DB_HOST', 'localhost')
     db_port = int(os.environ.get('DB_PORT', 3306))
@@ -83,15 +82,17 @@ def get_db_connection():
         'database': db_name
     }
 
+    # Configuración de SSL compatible con todas las versiones del conector de MySQL
     if db_host != 'localhost':
-        config['ssl_disabled'] = False
-        config['ssl_mode'] = 'REQUIRED'
+        config['ssl'] = {}  # Activa SSL seguro para Aiven eliminando ssl_mode
 
     return mysql.connector.connect(**config)
 
 
 @app.route('/api/stats/institucion/<int:creador_id>', methods=['GET'])
 def get_stats(creador_id):
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
@@ -113,6 +114,9 @@ def get_stats(creador_id):
         })
     except Exception as e:
         print(f"Error en stats: {e}")
+        # Asegurar el cierre de conexiones en caso de caída para no bloquear Aiven
+        if cursor: cursor.close()
+        if conn: conn.close()
         return jsonify({"error": str(e)}), 500
 
 
