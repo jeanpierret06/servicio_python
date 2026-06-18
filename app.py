@@ -43,8 +43,12 @@ def enviar_enlace():
         if not email_destino or not enlace_recuperacion:
             return jsonify({"status": "error", "message": "Faltan parámetros obligatorios: email o link"}), 400
 
-        # El mensaje se envía dinámicamente al correo extraído de la petición
-        msg = Message('Restablecer Acceso - Compuedu', recipients=[email_destino])
+        # Forzamos a que el 'sender' sea exactamente tu MAIL_DEFAULT_SENDER configurado en Render
+        msg = Message(
+            subject='Restablecer Acceso - Compuedu',
+            sender=app.config['MAIL_DEFAULT_SENDER'], 
+            recipients=[email_destino]
+        )
         
         msg.html = f"""
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
@@ -55,7 +59,6 @@ def enviar_enlace():
                 <h2 style="color: #333333;">Hola,</h2>
                 <p style="color: #666666; font-size: 16px;">
                     Has solicitado restablecer tu contraseña para acceder a nuestra plataforma académica. 
-                    No te preocupes, estamos aquí para ayudarte.
                 </p>
                 <div style="text-align: center; margin: 30px 0;">
                     <a href="{enlace_recuperacion}" 
@@ -64,27 +67,21 @@ def enviar_enlace():
                     </a>
                 </div>
                 <p style="color: #888888; font-size: 13px;">
-                    Si no solicitaste este cambio, puedes ignorar este correo de forma segura. El enlace expirará pronto.
+                    Si no solicitaste este cambio, puedes ignorar este correo de forma segura.
                 </p>
-            </div>
-            <div style="background-color: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #999999;">
-                &copy; 2026 Compuedu - Herramientas Académicas.
             </div>
         </div>
         """
         
-        # ASÍNCRONO: Se crea el hilo, pasamos la app y el mensaje, y lo iniciamos inmediatamente
         thr = Thread(target=send_async_email, args=[app, msg])
         thr.start()
         
-        # Respondemos de inmediato con éxito a Spring Boot para liberar la petición
         return jsonify({"status": "success", "message": "Proceso de envío iniciado"}), 200
 
     except Exception as e:
         print(f"DEBUG ERROR: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
+    
 # Adaptar la conexión para leer Aiven o Localhost automáticamente (VERSIÓN UNIVERSAL)
 def get_db_connection():
     db_host = os.environ.get('DB_HOST', 'localhost')
