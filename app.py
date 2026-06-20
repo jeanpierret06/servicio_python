@@ -1,54 +1,29 @@
 from flask import Flask, request, jsonify
-from flask_mail import Mail, Message
 from flask_cors import CORS
 import mysql.connector 
 import os 
 from threading import Thread
+# Importaciones oficiales del SDK de Brevo
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 
 app = Flask(__name__)
 CORS(app)
 
-# CONFIGURACIÓN DEL SERVIDOR DE CORREO (OPCIÓN B: VARIABLES DE ENTORNO EN RENDER)
-app.config['MAIL_SERVER'] = 'smtp-relay.brevo.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
+# CONFIGURACIÓN DEL SDK DE BREVO (OPCIÓN B: SEGURA POR VARIABLES DE ENTORNO)
+configuration = sib_api_v3_sdk.Configuration()
+# Lee tu llave 'xkeysib-...' directamente desde las variables de Render
+configuration.api_key['api-key'] = os.environ.get('MAIL_PASSWORD')
 
-# Extracción segura de credenciales desde el panel de Render
-app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME') 
-app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD') 
-app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER')
-
-mail = Mail(app)
+# Instancia el cliente de correos transaccionales de Brevo
+api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
 
-def send_async_email(app_instance, msg):
-    """Función que ejecuta el envío del correo en un hilo secundario aislado."""
-    with app_instance.app_context():
-        try:
-            mail.send(msg)
-            print("DEBUG: Correo HTML de recuperación enviado exitosamente en segundo plano.")
-        except Exception as e:
-            print(f"DEBUG ERROR HILO: Fallo al enviar correo: {str(e)}")
-
-
-@app.route('/api/enviar-enlace', methods=['POST'])
-def enviar_enlace():
+def send_async_brevo_email(email_destino, enlace_recuperacion, sender_email):
+    """Ejecuta el envío del correo transaccional utilizando el SDK oficial en segundo plano."""
     try:
-        data = request.get_json()
-        email_destino = data.get('email') 
-        enlace_recuperacion = data.get('link')
-
-        if not email_destino or not enlace_recuperacion:
-            return jsonify({"status": "error", "message": "Faltan parámetros obligatorios: email o link"}), 400
-
-        # Creación del mensaje usando el remitente configurado en el entorno
-        msg = Message(
-            subject='Restablecer Acceso - Compuedu',
-            sender=app.config['MAIL_DEFAULT_SENDER'], 
-            recipients=[email_destino]
-        )
-        
-        msg.html = f"""
+        # Definición del contenido del correo
+        html_content = f"""
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden;">
             <div style="background-color: #343a40; padding: 20px; text-align: center;">
                 <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Compuedu</h1>
@@ -70,8 +45,41 @@ def enviar_enlace():
             </div>
         </div>
         """
-        
-        thr = Thread(target=send_async_email, args=[app, msg])
+
+        # Estructura requerida por el objeto de Brevo
+        send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+            to=[{"email": email_destino}],
+            sender={"name": "Compuedu", "email": sender_email},
+            subject="Restablecer Acceso - Compuedu",
+            html_content=html_content
+        )
+
+        # Envío a través de la API
+        api_response = api_instance.send_transac_email(send_smtp_email)
+        print(f"DEBUG BREVO API: Correo enviado con éxito. ID: {api_response.message_id}")
+
+    except ApiException as e:
+        print(f"DEBUG ERROR BREVO API: Fallo al enviar a través del SDK: {e}")
+    except Exception as e:
+        print(f"DEBUG ERROR HILO: {str(e)}")
+
+
+@app.route('/api/enviar-enlace', methods=['POST'])
+def enviar_enlace():
+    try:
+        data = request.get_json()
+        email_destino = data.get('email') 
+        enlace_recuperacion = data.get('link')
+
+        if not email_destino or not enlace_recuperacion:
+            return jsonify({"status": "error", "message": "Faltan parámetros obligatorios: email o link"}), 400
+
+        sender_email = os.environ.get('MAIL_DEFAULT_SENDER')
+        if not sender_email:
+            return jsonify({"status": "error", "message": "Falta configurar la variable MAIL_DEFAULT_SENDER en Render"}), 500
+
+        # Dispara el hilo asíncrono con el nuevo método del SDK
+        thr = Thread(target=send_async_brevo_email, args=[email_destino, enlace_recuperacion, sender_email])
         thr.start()
         
         return jsonify({"status": "success", "message": "Proceso de envío iniciado"}), 200
@@ -95,7 +103,6 @@ def get_db_connection():
         'password': db_password,
         'database': db_name
     }
-
     return mysql.connector.connect(**config)
 
 
