@@ -3,21 +3,19 @@ from flask_mail import Mail, Message
 from flask_cors import CORS
 import mysql.connector 
 import os 
-from threading import Thread  # <-- NUEVO: Importación para ejecución en segundo plano
+from threading import Thread
 
 app = Flask(__name__)
 CORS(app)
 
-# CONFIGURACIÓN DEL SERVIDOR DE CORREO - TOTALMENTE DINÁMICO
+# CONFIGURACIÓN DEL SERVIDOR DE CORREO (OPCIÓN B: VARIABLES DE ENTORNO EN RENDER)
 app.config['MAIL_SERVER'] = 'smtp-relay.brevo.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
 
-# Credenciales extraídas de forma segura desde el entorno de Render
+# Extracción segura de credenciales desde el panel de Render
 app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME') 
 app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD') 
-
-# El remitente DEBE ser tu correo verificado en Brevo para que el servidor acepte el envío
 app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER')
 
 mail = Mail(app)
@@ -43,7 +41,7 @@ def enviar_enlace():
         if not email_destino or not enlace_recuperacion:
             return jsonify({"status": "error", "message": "Faltan parámetros obligatorios: email o link"}), 400
 
-        # Forzamos a que el 'sender' sea exactamente tu MAIL_DEFAULT_SENDER configurado en Render
+        # Creación del mensaje usando el remitente configurado en el entorno
         msg = Message(
             subject='Restablecer Acceso - Compuedu',
             sender=app.config['MAIL_DEFAULT_SENDER'], 
@@ -82,7 +80,7 @@ def enviar_enlace():
         print(f"DEBUG ERROR: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
     
-# Adaptar la conexión para leer Aiven o Localhost automáticamente (VERSIÓN UNIVERSAL)
+
 def get_db_connection():
     db_host = os.environ.get('DB_HOST', 'localhost')
     db_port = int(os.environ.get('DB_PORT', 3306))
